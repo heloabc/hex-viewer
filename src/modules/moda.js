@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
 import { dealWithFile, readFileAsArrayBuffer } from '../utils/file';
+import { InfiniteScroller } from 'react-iscroller';
 import { hot } from 'react-hot-loader';
 
 const STEP = 256;
@@ -15,7 +16,8 @@ function transChar(i) {
   return String.fromCharCode(i);
 }
 
-const OneLine = ({line}) => <div style={{wordWrap: 'break-word'}}>
+const OneLine = ({line, offset}) => <div style={{wordWrap: 'break-word'}}>
+  <span style={{ display: 'inline-block', marginRight: '2em', minWidth: '4em', textAlign: 'center' }}>{offset}</span>
   {
     line.map((i, pos) => <span
       key={`i-${pos}`}
@@ -45,10 +47,12 @@ class ModA extends Component {
   constructor() {
     super();
     this.handleFileSelect = this.handleFileSelect.bind(this);
+    this.onEnd = this.onEnd.bind(this);
     this.state = {
       cur: 0,
       buf: [],
-      file: {}
+      file: {},
+      blocks: [],
     };
   }
 
@@ -58,10 +62,13 @@ class ModA extends Component {
     if (!files.length) return;
     const file = files[0];
     const arrayBuffer = await readFileAsArrayBuffer(file);
-    const arr = new Uint8Array(arrayBuffer);
+    const buf = new Uint8Array(arrayBuffer);
+    // const block1 = this.getBlock(buf, 0);
     this.setState({
-      buf: arr,
+      blocks: [{startPos: '0', block: this.getBlock(buf, 0)}, {startPos: '512', block: this.getBlock(buf, 512)}],
+      buf,
       file,
+      cur: 1024,
     });
   }
 
@@ -70,7 +77,7 @@ class ModA extends Component {
     return partArr;
   }
 
-  renderBlock(block) {
+  renderBlock({ startPos, block }) {
     const length = block.length;
     const lineNums = Math.ceil(length / LINE_LENGTH);
     const lines = new Array(lineNums).fill([]).map((l, i) => {
@@ -78,16 +85,29 @@ class ModA extends Component {
     }).filter(l => l.length);
     return <div>
       {
-        lines.map((line, lineNum) => <OneLine key={`${lineNum}`} line={Array.from(line)} />)
+        lines.map((line, lineNum) => <OneLine key={`${lineNum}`} line={Array.from(line)} offset={+startPos + lineNum * LINE_LENGTH} />)
       }
     </div>;
   }
 
+  onEnd() {
+    const { cur, buf } = this.state;
+    const newBlock = this.getBlock(buf, cur);
+
+    if (newBlock.length) {
+      this.setState({
+        blocks: this.state.blocks.concat({startPos: `${cur}`, block: newBlock}),
+        cur: cur + 512,
+      });
+    }
+  }
+
   render() {
-    const { buf, file: { name: filename, size: filesize, type: filetype } } = this.state;
-    const lineCount = Math.ceil(buf.length / LINE_LENGTH);
-    console.log(lineCount)
-    const block = this.getBlock(buf, 0);
+    const {
+      buf,
+      file: { name: filename, size: filesize, type: filetype },
+      blocks,
+    } = this.state;
     return <div>
       <input type="file" onChange={this.handleFileSelect}/>
       {
@@ -104,21 +124,14 @@ class ModA extends Component {
           </div>
         </div>
       }
-      <div
-        style={{
-          overflow: 'scroll'
-        }}
-      >
-        {
-          this.renderBlock(block)
-        }
-        {/* <div
-          style={{
-            height: `${(lineCount - block.length) * 24}px`
-          }}
-        > */}
-        </div>
-      </div>
+      <InfiniteScroller
+        itemAverageHeight={24 * 16}
+        containerHeight={'90vh'}
+        items={blocks}
+        itemKey="startPos"
+        onRenderCell={this.renderBlock}
+        onEnd={this.onEnd}
+      />
     </div>
   }
 }
